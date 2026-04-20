@@ -100,12 +100,20 @@ dtoverlay=uart5
 
 ### 3. I²C-Kernel-Modul laden
 
+Die I²C-Integrationen (MCP23017, ADS1115, MPU-6050) benötigen das Kernel-Modul `i2c-dev`. Ohne dieses Modul existieren die `/dev/i2c-*`-Gerätedateien nicht und die Integrationen melden "Invalid I²C address".
+
 ```bash
-mkdir -p /mnt/boot/CONFIG/modules
-echo "i2c-dev" > /mnt/boot/CONFIG/modules/rpi-i2c.conf
+echo "i2c-dev" > /etc/modules-load.d/rpi-i2c.conf
 ```
 
-> **Hinweis:** Durch das Schreiben in `/mnt/boot/CONFIG/` kann es sein, dass der SSH-Zugang nach dem Reboot zurückgesetzt wird. In diesem Fall den USB-Stick-Schritt wiederholen.
+> **Wichtig:** Der Pfad `/etc/modules-load.d/` ist auf HAOS persistent (eigene Partition). Ältere Anleitungen verwenden `/mnt/boot/CONFIG/modules/` — das funktioniert auf HAOS ≥ 13 **nicht** mehr, da `systemd-modules-load` nur `/etc/modules-load.d/` auswertet.
+
+Zur Kontrolle:
+
+```bash
+cat /etc/modules-load.d/rpi-i2c.conf
+# Ausgabe: i2c-dev
+```
 
 ### 4. Neustart
 
@@ -114,6 +122,31 @@ reboot
 ```
 
 Am besten über **Entwicklerwerkzeuge → Konfiguration prüfen → Neu starten → Home Assistant neu starten**, so wird sichergestellt, dass alle Konfigurationen gültig sind.
+
+### 5. Prüfen ob alles funktioniert
+
+Nach dem Reboot per SSH (Port 22222) verbinden und prüfen:
+
+```bash
+ls /dev/i2c-*
+# Erwartet: /dev/i2c-0  /dev/i2c-1  (und weitere)
+
+# I²C-Geräte scannen (aus dem HA-Container):
+docker exec homeassistant python3 -c "
+import struct, fcntl, os
+bus = os.open('/dev/i2c-1', os.O_RDWR)
+found = []
+for addr in range(0x03, 0x78):
+    try:
+        fcntl.ioctl(bus, 0x0703, addr)
+        os.read(bus, 1)
+        found.append(hex(addr))
+    except: pass
+os.close(bus)
+print('I²C devices on bus 1:', found)
+"
+# Erwartet z.B.: ['0x20', '0x48', '0x69'] (MCP23017, ADS1115, MPU-6050)
+```
 
 See each integration's README for detailed setup instructions.
 
